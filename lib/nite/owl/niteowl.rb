@@ -146,16 +146,19 @@ module Nite
         add(After.new(delay))
       end
       def created
-        add(HasFlags.new([:create,:moved_to]))
+        add(HasFlags.new([:create]))
       end
       def modified
         add(HasFlags.new([:modify]))
       end
       def deleted
-        add(HasFlags.new([:delete,:moved_from]))
+        add(HasFlags.new([:delete]))
+      end
+      def renamed
+        add(HasFlags.new([:rename]))
       end
       def changes
-        add(HasFlags.new([:create,:delete,:modify,:moved_to,:moved_from]))
+        add(HasFlags.new([:create,:delete,:modify,:rename]))
       end
       def only_if(&block)
         add(OnlyIf.new(block))
@@ -289,7 +292,7 @@ module Nite
       def start
         @workers_thread = Thread.new {
           interval = 0.1
-          event_interval = 0.075
+          event_interval = 0.5
           last_event_time = nil
           next_time = Time.now.to_f+interval
           events = {}
@@ -335,19 +338,49 @@ module Nite
           end
         }
         # start platform specific notifier
+        pwd = Dir.pwd
         if RUBY_PLATFORM =~ /linux/
           require 'rb-inotify'
-          pwd = Dir.pwd
           puts "Nite Owl watching: #{pwd}"
           notifier = INotify::Notifier.new
-          notifier.watch(Dir.pwd, :recursive, :modify, :create, :delete, :move) do |event|
+          notifier.watch(pwd, :recursive, :modify, :create, :delete, :move) do |event|
             name = event.absolute_name.slice(pwd.size+1,event.absolute_name.size-pwd.size)
-            @queue << [name,event.flags]
+            flags = event.map do |f|
+              if f == :moved_to or f == :moved_from
+                :rename
+              else
+                f
+              end
+            end
+            @queue << [name,flags]
           end
           begin
             notifier.run
           rescue Interrupt => e
           end
+        elsif RUBY_PLATFORM =~ /darwin/
+          require 'rb-fsevent'
+          puts "Nite Owl watching: #{pwd}"
+          fsevent = FSEvent.new
+          fsevent.watch pwd,{:file_events => true} do |paths, event_meta|
+            event_meta['events'].each do |event|
+              name = event['path']
+              name = name.slice(pwd.size+1,name.size-pwd.size)
+              flags = event['flags'].map do |f|
+                if f == 'ItemCreated'
+                  :create
+                elsif f == 'ItemModified'
+                  :modify
+                elsif f == 'ItemRemoved'
+                  :delete
+                elsif f == 'ItemRenamed'
+                  :rename
+                end
+              end.keep_if {|f| f}
+              @queue << [name,flags]
+            end
+          end
+          fsevent.run
         else
           puts "Platform unsupported"
           exit(1)
