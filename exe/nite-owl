@@ -1,0 +1,10 @@
+#!/usr/bin/env ruby
+require "nite/owl"
+
+if ARGV.empty?
+  Nite::Owl::NiteOwl.instance.watch(Dir.pwd)
+else
+  Nite::Owl::NiteOwl.instance.watch(ARGV[0])
+end
+
+Nite::Owl::NiteOwl.instance.start
