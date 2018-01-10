@@ -1,6 +1,25 @@
 require 'open3'
 
 # Nite Owl DSL
+def quote(path)
+  if path.include? " "
+    "\"#{path}\""
+  else
+    path
+  end
+end
+
+def cd(dir)
+  Dir.chdir quote(dir)
+  puts "cd #{dir}"
+end
+
+def pwd
+  d = Dir.pwd
+  puts "pwd: #{d}"
+  d
+end
+
 def whenever(files)
   if files.is_a?(String) or files.is_a?(Regexp)
     files = [files]
@@ -9,15 +28,47 @@ def whenever(files)
 end
 
 # Run command in shell and redirect it's output to stdout and stderr
-def shell(command)
+def shell(command,options={:verbose => false,:silent => false,:stdin => nil})
+  stdout = ""
+  stderr = ""
+  verbose = options[:verbose]
+  silent = options[:silent]
+  stdin = options[:stdin]
+  if verbose
+    puts "Executing: #{command}"
+  end
   Open3.popen3(command) do |i,o,e,t|
+    stdin_i = 0
+    stdin_open = stdin != nil
     stdout_buffer = ""
     stderr_buffer = ""
     stdout_open = true
     stderr_open = true
     stdout_ch = nil
     stderr_ch = nil
-    while stdout_open or stderr_open
+    while stdout_open or stderr_open or stdin_open
+      if stdin_open
+        begin
+          p stdin
+          i.write(stdin)
+          i.close_write
+          stdin_open = false
+          #c = i.write_nonblock(stdin[stdin_i])
+          #if c > 0
+          #  stdin_i += 1
+          #  if stdin_i == stdin.size
+          #    i.close_write
+          #    stdin_open = false
+          #  end
+          #end
+        rescue IO::WaitWritable
+          IO.select([i])
+          puts "retry writeable"
+          retry
+        rescue EOFError
+          stdin_open = false
+        end
+      end
       if stdout_open
         begin
           stdout_ch = o.read_nonblock(1)
@@ -39,20 +90,31 @@ def shell(command)
         end
       end
       if stdout_ch == "\n" then
-        puts stdout_buffer
+        stdout += stdout_buffer+"\n"
+        unless silent
+          puts stdout_buffer
+        end
         stdout_buffer = ""
       elsif stdout_ch != nil
         stdout_buffer << stdout_ch
       end
       stdout_ch = nil
       if stderr_ch == "\n" then
-        STDERR.puts stderr_buffer
+        stderr += stderr_buffer+"\n"
+        unless silent
+          STDERR.puts stderr_buffer
+        end
         stderr_buffer = ""
       elsif stderr_ch != nil
         stderr_buffer << stderr_ch
       end
       stderr_ch = nil
     end
+  end
+  if stderr != ""
+    return stdout, stderr
+  else
+    return stdout
   end
 end
 
@@ -129,7 +191,8 @@ module Nite
         @actions.find { |a| a == action or (a.is_a?(Action) and a.contains?(action)) }
       end
       def remove(action)
-        @actions.delete_if { |a| a.contains?(action) }
+        @actions.delete_if { |a| a == action }
+        @actions.each { |a| a.is_a?(Action) and a.remove(action) }
         action
       end
       def run(&block)
@@ -137,7 +200,14 @@ module Nite
         self
       end
       def call(name,flags)
-        @actions.each { |n| n.call(name,flags) }
+        @actions.each do |n| 
+          begin
+            n.call(name,flags) 
+          rescue Exception => e
+            STDERR.puts e.message
+            STDERR.puts e.backtrace
+          end
+        end
       end
       def only_once
         run { root.remove(self) }
@@ -192,11 +262,20 @@ module Nite
         end
         if expired?
           $predicate_actions.delete(self)
+          @time = nil
         elsif predicate?(name,flags) 
           super(name,flags)
           $predicate_actions.delete(self)
+          @time = nil
         else
           $predicate_actions[self] = [name,flags]
+        end
+      end
+      def self.call_all_predicate_actions
+        if not $predicate_actions.empty?
+          $predicate_actions.each do |a,event|
+            a.call(event[0],event[1])
+          end
         end
       end
     end
@@ -245,7 +324,7 @@ module Nite
       end
     end
 
-    class Whenever < Action
+    class NameIs < Action
       def initialize(files)
         super()
         @files = files
@@ -275,10 +354,10 @@ module Nite
 
       def watch(dir)
         Dir.chdir dir
-        if File.file?("watch.rb") && File.readable?("watch.rb")
-          load "watch.rb"
+        if File.file?("Niteowl") && File.readable?("Niteowl")
+          load "Niteowl"
         else
-          puts "No watch.rb found in: #{dir}"
+          puts "No Niteowl file found in: #{dir}"
         end
         if @actions.empty?
           puts "No actions configured"
@@ -286,55 +365,57 @@ module Nite
       end
 
       def whenever(files)
-        add(Whenever.new(files))
+        add(NameIs.new(files))
       end
 
       def start
         @workers_thread = Thread.new {
-          interval = 0.1
-          event_interval = 0.5
-          last_event_time = nil
-          next_time = Time.now.to_f+interval
-          events = {}
-          while true
-            until @queue.empty?
-              event = @queue.pop(true) rescue nil
-              if event
-                name = event[0]
-                flags = event[1]
-                if events[name]
-                  new_flags = events[name] + flags
-                  if new_flags == [:delete, :create, :modify]
-                    new_flags = [:modify]
-                  end
-                  events[name] = new_flags
-                else
-                  events[name] = flags
-                end
-                last_event_time = Time.now.to_f
-              end
-            end
-            if last_event_time && Time.now.to_f >= (last_event_time+event_interval)
-              events.each do |name,flags|
-                begin
-                  Nite::Owl::NiteOwl.instance.call(name,flags.uniq)
-                rescue Exception => e
-                  puts e.message
-                end
-              end
-              events.clear
-              last_event_time = nil
-            end
-            if not $predicate_actions.empty?
-              $predicate_actions.each do |a,event|
-                a.call(event[0],event[1])
-              end
-            end
-            delay = next_time - Time.now.to_f
-            if delay > 0
-              sleep(delay/1000.0)
-            end
+          begin
+            interval = 0.1
+            event_interval = 0.5
+            last_event_time = nil
             next_time = Time.now.to_f+interval
+            events = {}
+            while true
+              until @queue.empty?
+                event = @queue.pop(true) rescue nil
+                if event
+                  name = event[0]
+                  flags = event[1]
+                  if events[name]
+                    new_flags = events[name] + flags
+                    if new_flags == [:delete, :create, :modify]
+                      new_flags = [:modify]
+                    end
+                    events[name] = new_flags
+                  else
+                    events[name] = flags
+                  end
+                  last_event_time = Time.now.to_f
+                end
+              end
+              if last_event_time && Time.now.to_f >= (last_event_time+event_interval)
+                events.each do |name,flags|
+                  begin
+                    Nite::Owl::NiteOwl.instance.call(name,flags.uniq)
+                  rescue Exception => e
+                    puts e.message
+                    puts e.backtrace
+                  end
+                end
+                events.clear
+                last_event_time = nil
+              end
+              PredicateAction.call_all_predicate_actions
+              delay = next_time - Time.now.to_f
+              if delay > 0
+                sleep(delay/1000.0)
+              end
+              next_time = Time.now.to_f+interval
+            end
+          rescue Exception => e
+            puts e.message
+            puts e.backtrace
           end
         }
         # start platform specific notifier
@@ -345,7 +426,7 @@ module Nite
           notifier = INotify::Notifier.new
           notifier.watch(pwd, :recursive, :modify, :create, :delete, :move) do |event|
             name = event.absolute_name.slice(pwd.size+1,event.absolute_name.size-pwd.size)
-            flags = event.map do |f|
+            flags = event.flags do |f|
               if f == :moved_to or f == :moved_from
                 :rename
               else

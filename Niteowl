@@ -4,8 +4,6 @@ whenever(/.*rb/)
   .if_not {
     false
   }
-  .run { |n,f|
-shell <<"END"
-ls -lh
-END
-}
+  .run do |n,f|
+    shell "ls -lh"
+  end
