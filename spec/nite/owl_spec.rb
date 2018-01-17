@@ -73,6 +73,22 @@ RSpec.describe Nite::Owl::Action do
     root.call(nil,nil)
     expect(c).to eq(3)
   end
+  it "can defer their execution" do
+    c = 0
+    root = Nite::Owl::Action.new
+    root.run { 
+      c+=1 
+    }
+    root.defer(nil,nil)
+    expect(c).to eq(0)
+    Nite::Owl::Action.call_all_deferred_actions()
+    expect(c).to eq(1)
+    Nite::Owl::Action.call_all_deferred_actions()
+    expect(c).to eq(2)
+    root.undefer
+    Nite::Owl::Action.call_all_deferred_actions()
+    expect(c).to eq(2)
+  end
   it "can delay their execution" do
     c = 0
     root = Nite::Owl::Action.new

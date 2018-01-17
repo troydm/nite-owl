@@ -185,6 +185,7 @@ module Nite
     end
 
     $current_action = nil
+    $deferred_actions = {}
 
     class Action
       attr_accessor :parent
@@ -195,6 +196,21 @@ module Nite
       end
       def current_action
         $current_action
+      end
+      def defer(name,flags)
+        unless $deferred_actions.has_key?(self)
+          $deferred_actions[self] = [name,flags] 
+        end
+      end
+      def undefer
+        $deferred_actions.delete(self)
+      end
+      def self.call_all_deferred_actions
+        unless $deferred_actions.empty?
+          $deferred_actions.dup.each do |a,event|
+            a.call(event[0],event[1])
+          end
+        end
       end
       def root
         r = self
@@ -229,6 +245,7 @@ module Nite
             n.call(name,flags)
           rescue Delay => d
             handle_delay(d)
+            defer(name,flags)
           rescue Exception => e
             STDERR.puts e.message
             STDERR.puts e.backtrace
@@ -247,7 +264,7 @@ module Nite
         end
       end
       def handle_delay(d)
-        if not @delay
+        unless @delay
           @delay = Time.now + d.time
         end
       end
@@ -280,8 +297,6 @@ module Nite
       end
     end
 
-    $predicate_actions = {}
-
     class PredicateAction < Action
       def initialize
         super()
@@ -301,32 +316,25 @@ module Nite
       def call(name,flags)
         $current_action = self
         begin
-          if not @time
+          unless @time
             @time = Time.now.to_f
           end
           if expired?
-            $predicate_actions.delete(self)
+            undefer()
             @time = nil
           elsif predicate?(name,flags)
             super(name,flags)
-            $predicate_actions.delete(self)
+            undefer()
             @time = nil
           else
-            $predicate_actions[self] = [name,flags]
+            defer(name,flags)
           end
         rescue Delay => d
           handle_delay(d)
-          $predicate_actions[self] = [name,flags]
+          defer(name,flags)
         rescue Exception => e
           STDERR.puts e.message
           STDERR.puts e.backtrace
-        end
-      end
-      def self.call_all_predicate_actions
-        if not $predicate_actions.empty?
-          $predicate_actions.clone.each do |a,event|
-            a.call(event[0],event[1])
-          end
         end
       end
     end
@@ -457,10 +465,10 @@ module Nite
                 events.clear
                 last_event_time = nil
               end
-              PredicateAction.call_all_predicate_actions
+              Action.call_all_deferred_actions()
               delay = next_time - Time.now.to_f
               if delay > 0
-                sleep(delay/1000.0)
+                sleep(delay)
               end
               next_time = Time.now.to_f+interval
             end
