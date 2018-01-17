@@ -73,6 +73,19 @@ RSpec.describe Nite::Owl::Action do
     root.call(nil,nil)
     expect(c).to eq(3)
   end
+  it "can delay their execution" do
+    c = 0
+    root = Nite::Owl::Action.new
+    root.run { 
+      delay(1)
+      c+=1 
+    }
+    root.call(nil,nil)
+    expect(c).to eq(0)
+    sleep(1)
+    root.call(nil,nil)
+    expect(c).to eq(1)
+  end
 end
 RSpec.describe Nite::Owl::After do
   it "can execute actions only after some delay" do

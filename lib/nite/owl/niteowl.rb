@@ -27,6 +27,10 @@ def whenever(files)
   Nite::Owl::NiteOwl.instance.whenever(files)
 end
 
+def delay(time)
+  Nite::Owl::NiteOwl.instance.current_action().delay(time)
+end
+
 # Run command in shell and redirect it's output to stdout and stderr
 def shell(command,options={:verbose => false,:silent => false,:stdin => nil})
   stdout = ""
@@ -119,9 +123,14 @@ def shell(command,options={:verbose => false,:silent => false,:stdin => nil})
 end
 
 # get process pid(s)
-def process(name)
-  out,_ = Open3.capture2("pgrep -f #{name}")
-  if out == ""
+def process(name,full=true)
+  if full
+    full = '-f '
+  else
+    full = ''
+  end
+  out,_ = Open3.capture2("/usr/bin/pgrep #{full}#{name}")
+  if out == ''
     nil
   else
     pids = []
@@ -138,7 +147,7 @@ end
 
 # kill process
 def kill(pids,signal=15)
-  if pids.is_a?(Array)  
+  if pids.is_a?(Array)
     pids.each do |pid|
       Process.kill(signal,pid)
     end
@@ -167,11 +176,25 @@ module Nite
       end
     end
 
+    # special exception thrown by delay method
+    class Delay < Exception
+      attr_accessor :time
+      def initialize(time)
+        @time = time
+      end
+    end
+
+    $current_action = nil
+
     class Action
       attr_accessor :parent
       def initialize
         @actions = []
         @parent=nil
+        @delay=nil
+      end
+      def current_action
+        $current_action
       end
       def root
         r = self
@@ -200,13 +223,32 @@ module Nite
         self
       end
       def call(name,flags)
-        @actions.each do |n| 
+        $current_action = self
+        @actions.each do |n|
           begin
-            n.call(name,flags) 
+            n.call(name,flags)
+          rescue Delay => d
+            handle_delay(d)
           rescue Exception => e
             STDERR.puts e.message
             STDERR.puts e.backtrace
           end
+        end
+      end
+      def delay(time)
+        if @delay
+          if Time.now >= @delay
+            @delay = nil
+          else
+            raise Delay.new(0)
+          end
+        else
+          raise Delay.new(time)
+        end
+      end
+      def handle_delay(d)
+        if not @delay
+          @delay = Time.now + d.time
         end
       end
       def only_once
@@ -257,23 +299,32 @@ module Nite
         self
       end
       def call(name,flags)
-        if not @time
-          @time = Time.now.to_f
-        end
-        if expired?
-          $predicate_actions.delete(self)
-          @time = nil
-        elsif predicate?(name,flags) 
-          super(name,flags)
-          $predicate_actions.delete(self)
-          @time = nil
-        else
+        $current_action = self
+        begin
+          if not @time
+            @time = Time.now.to_f
+          end
+          if expired?
+            $predicate_actions.delete(self)
+            @time = nil
+          elsif predicate?(name,flags)
+            super(name,flags)
+            $predicate_actions.delete(self)
+            @time = nil
+          else
+            $predicate_actions[self] = [name,flags]
+          end
+        rescue Delay => d
+          handle_delay(d)
           $predicate_actions[self] = [name,flags]
+        rescue Exception => e
+          STDERR.puts e.message
+          STDERR.puts e.backtrace
         end
       end
       def self.call_all_predicate_actions
         if not $predicate_actions.empty?
-          $predicate_actions.each do |a,event|
+          $predicate_actions.clone.each do |a,event|
             a.call(event[0],event[1])
           end
         end
