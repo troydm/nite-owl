@@ -27,8 +27,16 @@ def whenever(files)
   Nite::Owl::NiteOwl.instance.whenever(files)
 end
 
+def action
+  Nite::Owl::NiteOwl.instance.current_action()
+end
+
 def delay(time)
-  Nite::Owl::NiteOwl.instance.current_action().delay(time)
+  action.delay(time)
+end
+
+def cancel
+  action.cancel
 end
 
 # Run command in shell and redirect it's output to stdout and stderr
@@ -176,6 +184,10 @@ module Nite
       end
     end
 
+    # special exception thrown by cancel method
+    class Cancel < Exception
+    end
+
     # special exception thrown by delay method
     class Delay < Exception
       attr_accessor :time
@@ -197,6 +209,9 @@ module Nite
       def current_action
         $current_action
       end
+      def cancel
+        raise Cancel.new
+      end
       def defer(name,flags)
         unless $deferred_actions.has_key?(self)
           $deferred_actions[self] = [name,flags] 
@@ -214,25 +229,28 @@ module Nite
       end
       def root
         r = self
-        while r.parent
+        while r.parent.parent
           r = r.parent
         end
         r
       end
-      def add(action)
-        @actions << action
-        if action.is_a?(Action)
-          action.parent = self
+      def also
+        root
+      end
+      def add(a)
+        @actions << a
+        if a.is_a?(Action)
+          a.parent = self
         end
-        action
+        a
       end
-      def contains?(action)
-        @actions.find { |a| a == action or (a.is_a?(Action) and a.contains?(action)) }
+      def contains?(a)
+        @actions.find { |b| a == b or (b.is_a?(Action) and b.contains?(a)) }
       end
-      def remove(action)
-        @actions.delete_if { |a| a == action }
-        @actions.each { |a| a.is_a?(Action) and a.remove(action) }
-        action
+      def remove(a)
+        @actions.delete_if { |b| a == b }
+        @actions.each { |b| b.is_a?(Action) and b.remove(a) }
+        a
       end
       def run(&block)
         add(block)
@@ -243,6 +261,8 @@ module Nite
         @actions.each do |n|
           begin
             n.call(name,flags)
+          rescue Cancel => c
+            undefer()
           rescue Delay => d
             handle_delay(d)
             defer(name,flags)
@@ -269,7 +289,10 @@ module Nite
         end
       end
       def only_once
-        run { root.remove(self) }
+        run { root.parent.remove(self) }
+      end
+      def ignore(files)
+        add(NameIsNot.new(files))
       end
       def after(delay)
         add(After.new(delay))
@@ -320,15 +343,16 @@ module Nite
             @time = Time.now.to_f
           end
           if expired?
-            undefer()
-            @time = nil
+            cancel
           elsif predicate?(name,flags)
             super(name,flags)
-            undefer()
-            @time = nil
+            cancel
           else
             defer(name,flags)
           end
+        rescue Cancel => c
+          undefer()
+          @time = nil
         rescue Delay => d
           handle_delay(d)
           defer(name,flags)
@@ -383,7 +407,7 @@ module Nite
       end
     end
 
-    class NameIs < Action
+    class FilesAction < Action
       def initialize(files)
         super()
         @files = files
@@ -397,8 +421,17 @@ module Nite
           end
         end
       end
+    end
+
+    class NameIs < FilesAction
       def call(name,flags)
         match?(name) && super(name,flags)
+      end
+    end
+
+    class NameIsNot < FilesAction
+      def call(name,flags)
+        not match?(name) && super(name,flags)
       end
     end
 
