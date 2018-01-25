@@ -32,7 +32,9 @@ end
 RSpec.describe Nite::Owl::Action do
   it "can have tree of actions" do
     c = 0
+    nroot = Nite::Owl::Action.new
     root = Nite::Owl::Action.new
+    nroot.add(root)
     root.run { c+=1 }
     l = Nite::Owl::Action.new
     l.run { c+=1 }
@@ -54,7 +56,7 @@ RSpec.describe Nite::Owl::Action do
     expect(rr.root).to eq(root)
     expect(rl.parent).to eq(r)
     expect(rr.parent).to eq(r)
-    expect(root.parent).to be_nil
+    expect(root.parent).to eq(nroot)
     expect(root.contains?(l)).to be_truthy
     expect(root.contains?(r)).to be_truthy
     expect(root.contains?(rr)).to be_truthy
