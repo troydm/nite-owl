@@ -1,28 +1,18 @@
-# Nite::Owl
+# Nite::Owl [![Gem Version](https://badge.fury.io/rb/nite-owl.svg)](https://badge.fury.io/rb/nite-owl) [![Build Status](https://travis-ci.org/troydm/nite-owl.png?branch=master)](https://travis-ci.org/troydm/nite-owl)
 
-Welcome to your new gem! In this directory, you'll find the files you need to be able to package up your Ruby library into a gem. Put your Ruby code in the file `lib/nite/owl`. To experiment with that code, run `bin/console` for an interactive prompt.
-
-TODO: Delete this and the text above, and describe your gem
+Nite Owl watches over your files and executes commands if anything happens to them, it's like [guard](https://github.com/guard/guard) on a super diet!
+Supports linux and macos only and depends only on rb-fsevent and rb-inotify.
 
 ## Installation
 
-Add this line to your application's Gemfile:
-
-```ruby
-gem 'nite-owl'
-```
-
-And then execute:
-
-    $ bundle
-
-Or install it yourself as:
+To install just run this command:
 
     $ gem install nite-owl
 
 ## Usage
 
-TODO: Write usage instructions here
+Create Niteowl configuration file inside a directory you want to watch over and the run nite-owl.
+See example Niteowl configuration file.
 
 ## Development
 
@@ -32,7 +22,7 @@ To install this gem onto your local machine, run `bundle exec rake install`. To 
 
 ## Contributing
 
-Bug reports and pull requests are welcome on GitHub at https://github.com/[USERNAME]/nite-owl.
+Bug reports and pull requests are welcome on GitHub at https://github.com/troydm/nite-owl.
 
 ## License
 
