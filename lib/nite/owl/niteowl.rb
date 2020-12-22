@@ -446,13 +446,27 @@ module Nite
 
       def watch(dir)
         Dir.chdir dir
-        if File.file?("Niteowl") && File.readable?("Niteowl")
-          load "Niteowl"
-        else
-          puts "No Niteowl file found in: #{dir}"
+        file = "Niteowl"
+        unless File.file?(file) && File.readable?(file)
+          file = "Niteowl.rb"
         end
+        unless File.file?(file) && File.readable?(file)
+          puts "No Niteowl[.rb] file found in: #{dir}"
+          exit 1
+        end
+        load file
         if @actions.empty?
-          puts "No actions configured"
+          puts "No actions configured in Niteowl file: #{dir}/#{file}"
+          exit 1
+        end
+      end
+
+      def eval_watch(dir, code)
+        Dir.chdir dir
+        eval(code)
+        if @actions.empty?
+          puts "No actions configured in STDIN input stream"
+          exit 1
         end
       end
 

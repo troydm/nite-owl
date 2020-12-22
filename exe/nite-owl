@@ -1,10 +1,57 @@
 #!/usr/bin/env ruby
 require "nite/owl"
+require "nite/owl/version"
+require "optparse"
 
-if ARGV.empty?
-  Nite::Owl::NiteOwl.instance.watch(Dir.pwd)
+options = {}
+OptionParser.new do |opts|
+  opts.banner = "Usage: nite-owl [options] [dir]"
+
+  opts.on("-d", "--daemon", "Run as daemon") do |v|
+    options[:daemon] = true
+  end
+
+  opts.on("-l", "--log FILE", "Log file") do |f|
+    options[:log] = File.expand_path(f)
+  end
+
+  opts.on("-v", "--version", "Print version") do |v|
+    puts "nite-owl v#{Nite::Owl::VERSION}"
+    exit
+  end
+end.parse!
+
+if ARGV.length > 1 then
+  STDERR.puts "multiple directories are not supported"
+  exit 1
+end
+
+dir = ARGV.last
+if dir == nil then
+  dir = Dir.pwd
+end
+
+unless File.directory?(dir) then
+  STDERR.puts "#{dir} is not a valid directory path"
+  exit 1
+end
+
+if options[:log] then
+  $stdout.reopen(options[:log], "w")
+  $stdout.sync = true
+  $stderr.reopen($stdout)
+end
+
+dir = File.expand_path(dir)
+
+if STDIN.tty? then
+  Nite::Owl::NiteOwl.instance.watch(dir)
 else
-  Nite::Owl::NiteOwl.instance.watch(ARGV[0])
+  Nite::Owl::NiteOwl.instance.eval_watch(dir, STDIN.read)
+end
+
+if options[:daemon] then
+  Process.daemon(nochdir=true,noclose=true)
 end
 
 Nite::Owl::NiteOwl.instance.start

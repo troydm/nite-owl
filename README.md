@@ -11,8 +11,8 @@ To install just run this command:
 
 ## Usage
 
-Create Niteowl configuration file inside a directory you want to watch over and the run nite-owl.
-See example Niteowl configuration file.
+Create Niteowl.rb configuration file inside a directory you want to watch over and the run nite-owl.
+See example Niteowl.rb configuration file.
 
 ## Development
 
